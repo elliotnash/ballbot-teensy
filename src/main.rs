@@ -15,8 +15,8 @@ use cortex_m_rt as rt;
 use teensy4_bsp as bsp;
 use teensy4_panic as _;
 use core::time::Duration;
-use alloc_cortex_m::CortexMHeap;
 use cortex_m::interrupt::Mutex;
+use embedded_alloc::Heap;
 use teensy4_bsp::usb;
 use crate::logger::SerialLogger;
 use crate::serial::SerialComm;
@@ -31,7 +31,7 @@ const LED_PERIOD: Duration = Duration::from_millis(1_000);
 const GPT_OCR: bsp::hal::gpt::OutputCompareRegister = bsp::hal::gpt::OutputCompareRegister::One;
 
 #[global_allocator]
-static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+static HEAP: Heap = Heap::empty();
 
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
@@ -41,8 +41,8 @@ fn oom(_: Layout) -> ! {
 fn init_allocator() {
     use core::mem::MaybeUninit;
     const HEAP_SIZE: usize = 1024;
-    static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-    unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
+    static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+    unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
 }
 
 #[rt::entry]
