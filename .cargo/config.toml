@@ -1,0 +1,11 @@
+[build]
+target = "thumbv7em-none-eabihf"
+
+[target.thumbv7em-none-eabihf]
+rustflags = [
+    "-C", "link-arg=-Tt4link.x",
+]
+runner = ["cargo", "teensy-runner", "--"]
+
+[unstable]
+build-std = ["core", "alloc"]
