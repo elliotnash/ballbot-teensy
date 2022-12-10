@@ -7,19 +7,15 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-use core::alloc::Layout;
-use core::borrow::{Borrow, BorrowMut};
-use core::cell::RefCell;
-use cortex_m_rt as rt;
-use teensy4_bsp as bsp;
-use teensy4_panic as _;
-use core::time::Duration;
-use cortex_m::interrupt::Mutex;
-use embedded_alloc::Heap;
-use teensy4_bsp::usb;
 use crate::logger::SerialLogger;
 use crate::serial::SerialComm;
+use alloc::format;
+use core::alloc::Layout;
+use core::panic::PanicInfo;
+use core::time::Duration;
+use cortex_m_rt as rt;
+use embedded_alloc::Heap;
+use teensy4_bsp as bsp;
 
 mod logger;
 mod serial;
@@ -38,7 +34,7 @@ fn oom(_: Layout) -> ! {
     loop {}
 }
 
-fn init_allocator() {
+fn init_heap() {
     use core::mem::MaybeUninit;
     const HEAP_SIZE: usize = 1024;
     static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
@@ -48,7 +44,7 @@ fn init_allocator() {
 #[rt::entry]
 fn main() -> ! {
     // Initialize the allocator BEFORE you use it
-    init_allocator();
+    init_heap();
 
     let mut periphs = bsp::Peripherals::take().unwrap();
 
@@ -90,13 +86,14 @@ fn main() -> ! {
     };
 
     // See the `logging` module docs for more info.
-    let serial = SerialComm::init().unwrap();
+    let serial = SerialComm::get().unwrap();
     SerialLogger::init(serial.clone());
 
     timer.set_enable(true);
 
     let mut count = 0;
     loop {
+        serial.read();
         if timer.output_compare_status(GPT_OCR).is_set() {
             led.toggle();
             log::info!("Toggling led: {}", count);
@@ -105,4 +102,11 @@ fn main() -> ! {
             timer.output_compare_status(GPT_OCR).clear();
         }
     }
+}
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    SerialComm::get().unwrap().call("panic", format!("{info}"));
+    #[allow(clippy::empty_loop)]
+    loop {}
 }

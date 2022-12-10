@@ -7,8 +7,9 @@ edition = "2021"
 [dependencies]
 embedded-hal = "0.2.1"
 log = "0.4.17"
-teensy4-panic = "0.2.1"
 embedded-alloc = "0.5.0"
+critical-section = "1.1.1"
+lazy_static = { version = "1.4.0", features = ["spin_no_std"]}
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"]}
 cortex-m-rt = "0.7.2"
