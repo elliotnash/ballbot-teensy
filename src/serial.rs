@@ -1,22 +1,45 @@
-//! USB logging support
-//!
-//! If you don't want USB logging, remove
-//!
-//! - this module
-//! - the `log` dependency in Cargo.toml
+//! USB Serial communication
 
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::{cell::RefCell, fmt::Write};
 use critical_section::Mutex;
 use lazy_static::lazy_static;
-use log::warn;
+use log::{error, info, warn};
 use teensy4_bsp::{hal::ral::usb::USB1, interrupt, usb};
+
+use crate::events;
 
 pub const END: u8 = 0x00;
 pub const READY: u8 = 0x01;
-pub const DISCONNECT: u8 = 0x02;
-pub const FUNCTION_HEADER: u8 = 0x03;
-pub const RETURN_HEADER: u8 = 0x04;
+pub const FUNCTION_HEADER: u8 = 0x02;
+pub const RETURN_HEADER: u8 = 0x03;
+
+trait BlockingReader {
+    fn read_n(&mut self, num_bytes: usize) -> Result<Vec<u8>, usb::Error>;
+    fn read_n_blocking(&mut self, num_bytes: usize) -> Result<Vec<u8>, usb::Error>;
+}
+
+impl BlockingReader for usb::Reader {
+    fn read_n(&mut self, num_bytes: usize) -> Result<Vec<u8>, usb::Error> {
+        if num_bytes == 0 {
+            return Ok(Vec::new());
+        }
+        let mut data = vec![0u8; num_bytes];
+        self.read(&mut data)?;
+        Ok(data)
+    }
+    fn read_n_blocking(&mut self, num_bytes: usize) -> Result<Vec<u8>, usb::Error> {
+        if num_bytes == 0 {
+            return Ok(Vec::new());
+        }
+        let mut data = vec![0u8; num_bytes];
+        while self.read(&mut data)? == 0 {}
+        Ok(data)
+    }
+}
 
 #[derive(Clone)]
 pub struct SerialComm {
@@ -35,7 +58,7 @@ impl SerialComm {
     /// # Panics
     ///
     /// Panics if the USB1 instance is already taken.
-    pub fn get() -> Result<SerialComm, usb::Error> {
+    pub fn get() -> Result<Self, usb::Error> {
         lazy_static! {
             static ref SERIAL: SerialComm = usb::split(USB1::take().unwrap())
                 .map(|(poller, rx, tx)| {
@@ -64,29 +87,63 @@ impl SerialComm {
     pub fn read(&self) {
         critical_section::with(|cs| {
             let rx = self.rx.clone();
-            let mut rx = rx.borrow(cs).borrow_mut();
-            let mut event = [0u8; 1];
-            if let Ok(read) = rx.read(&mut event) {
-                if read == 1 {
-                    match event[0] {
-                        READY => {
-                            // if we receive ready event, we should respond back with ready
-                            self.ready();
+            let mut rx = rx.borrow_ref_mut(cs);
+            match rx.read_n(1).map(|e| e[0]) {
+                Ok(READY) => {
+                    // if we receive ready event, we should respond back with ready
+                    self.ready();
+                }
+                Ok(FUNCTION_HEADER) => {
+                    // we've received a request to call a function.
+                    // we need to dispatch it and return a RETURN event.
+                    let function_len = rx.read_n_blocking(1).unwrap()[0];
+                    info!("got function length of {function_len}");
+
+                    let function =
+                        String::from_utf8(rx.read_n_blocking(function_len as usize).unwrap())
+                            .unwrap();
+                    info!("got function {function}");
+
+                    let data_len = rx.read_n_blocking(2).unwrap();
+                    let data_len = u16::from_le_bytes([data_len[0], data_len[1]]);
+                    info!("got data length of {data_len}");
+
+                    let data = rx.read_n_blocking(data_len as usize).unwrap();
+
+                    // read end
+                    rx.read_n_blocking(1).unwrap();
+
+                    let result = match function.as_str() {
+                        "set_led" => events::set_led(data),
+                        "reset" => events::reset(data),
+                        _ => {
+                            warn!("Function {function} does not exist");
+                            vec![]
                         }
-                        FUNCTION_HEADER => {
-                            // we've received a request to call a function.
-                            // we need to dispatch it and return a RETURN event.
-                        }
-                        b => {
-                            // if we haven't matched, then the even had an invalid format (no event type)
-                            warn!("Received invalid event {b}");
-                            // flush buffer
-                            //TODO proper flush
-                            while rx.read(event).unwrap() > 0 {}
-                        }
-                    }
+                    };
+                    self.return_event(result);
+                }
+                Ok(END) => {}
+                Ok(b) => {
+                    // if we haven't matched, then the even had an invalid format (no event type)
+                    warn!("Received invalid event {b}");
+                    // flush buffer
+                    //TODO proper flush
+                    let buffer = [0u8; 1];
+                    while rx.read(buffer).unwrap() > 0 {}
+                }
+                Err(error) => {
+                    error!("Error reading from serial: {:?}", error);
                 }
             }
+        });
+    }
+    fn return_event<B: AsRef<[u8]>>(&self, data: B) {
+        critical_section::with(|cs| {
+            let tx = self.tx.clone();
+            let mut tx = tx.borrow(cs).borrow_mut();
+            tx.write([RETURN_HEADER]).unwrap();
+            tx.write(data).unwrap();
         });
     }
     pub fn call<B: AsRef<[u8]>>(&self, function: &str, data: B) {

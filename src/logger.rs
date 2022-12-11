@@ -33,10 +33,17 @@ impl log::Log for SerialLogger {
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
             let level = record.level().to_string();
+            let file = record.file().unwrap_or("unknown");
+            let line = record.line().unwrap_or(0);
             let content = record.args().to_string();
 
             let mut data = vec![level.len() as u8];
             data.append(&mut level.into_bytes());
+
+            data.extend_from_slice(&(file.len() as u16).to_le_bytes());
+            data.append(&mut file.to_string().into_bytes());
+
+            data.extend_from_slice(&line.to_le_bytes());
 
             data.extend_from_slice(&(content.len() as u16).to_le_bytes());
             data.append(&mut content.into_bytes());
