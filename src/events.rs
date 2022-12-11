@@ -3,19 +3,21 @@ use alloc::vec::Vec;
 use log::debug;
 
 pub fn set_led(data: Vec<u8>) -> Vec<u8> {
-    debug!("called set_led");
     critical_section::with(|cs| {
         let hardware = Hardware::get();
         let mut hardware = hardware.borrow_ref_mut(cs);
         if !data.is_empty() {
             if data[0] == 0 {
+                debug!("called set_led with argument: true");
                 // turn off led
                 hardware.led.clear();
             } else {
+                debug!("called set_led with argument: false");
                 // turn on led
                 hardware.led.set();
             }
         } else {
+            debug!("called set_led with no argument, defaulting to toggling");
             // toggle led
             hardware.led.toggle();
         }
