@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use core::{cell::RefCell, fmt::Write};
 use critical_section::Mutex;
 use lazy_static::lazy_static;
-use log::{error, info, warn};
+use log::{error, trace, warn};
 use teensy4_bsp::{hal::ral::usb::USB1, interrupt, usb};
 
 use crate::events;
@@ -20,6 +20,7 @@ pub const RETURN_HEADER: u8 = 0x03;
 trait BlockingReader {
     fn read_n(&mut self, num_bytes: usize) -> Result<Vec<u8>, usb::Error>;
     fn read_n_blocking(&mut self, num_bytes: usize) -> Result<Vec<u8>, usb::Error>;
+    fn flush(&mut self);
 }
 
 impl BlockingReader for usb::Reader {
@@ -38,6 +39,11 @@ impl BlockingReader for usb::Reader {
         let mut data = vec![0u8; num_bytes];
         while self.read(&mut data)? == 0 {}
         Ok(data)
+    }
+    //TODO proper flush
+    fn flush(&mut self) {
+        let buffer = [0u8; 1];
+        while self.read(buffer).unwrap() > 0 {}
     }
 }
 
@@ -97,16 +103,16 @@ impl SerialComm {
                     // we've received a request to call a function.
                     // we need to dispatch it and return a RETURN event.
                     let function_len = rx.read_n_blocking(1).unwrap()[0];
-                    info!("got function length of {function_len}");
+                    trace!("got function length of {function_len}");
 
                     let function =
                         String::from_utf8(rx.read_n_blocking(function_len as usize).unwrap())
                             .unwrap();
-                    info!("got function {function}");
+                    trace!("got function {function}");
 
                     let data_len = rx.read_n_blocking(2).unwrap();
                     let data_len = u16::from_le_bytes([data_len[0], data_len[1]]);
-                    info!("got data length of {data_len}");
+                    trace!("got data length of {data_len}");
 
                     let data = rx.read_n_blocking(data_len as usize).unwrap();
 
@@ -128,9 +134,7 @@ impl SerialComm {
                     // if we haven't matched, then the even had an invalid format (no event type)
                     warn!("Received invalid event {b}");
                     // flush buffer
-                    //TODO proper flush
-                    let buffer = [0u8; 1];
-                    while rx.read(buffer).unwrap() > 0 {}
+                    rx.flush();
                 }
                 Err(error) => {
                     error!("Error reading from serial: {:?}", error);

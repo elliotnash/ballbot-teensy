@@ -1,9 +1,9 @@
 use crate::hardware::Hardware;
 use alloc::vec::Vec;
-use log::info;
+use log::debug;
 
 pub fn set_led(data: Vec<u8>) -> Vec<u8> {
-    info!("called set_led");
+    debug!("called set_led");
     critical_section::with(|cs| {
         let hardware = Hardware::get();
         let mut hardware = hardware.borrow_ref_mut(cs);
@@ -25,6 +25,7 @@ pub fn set_led(data: Vec<u8>) -> Vec<u8> {
 }
 
 pub fn reset(_: Vec<u8>) -> ! {
+    debug!("called reset");
     critical_section::with(|cs| {
         let hw = Hardware::get();
         let mut hw = hw.borrow_ref_mut(cs);
