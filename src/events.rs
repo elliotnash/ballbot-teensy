@@ -1,6 +1,6 @@
 use crate::hardware::Hardware;
 use alloc::vec::Vec;
-use log::debug;
+use log::{debug, trace};
 
 pub fn set_led(data: Vec<u8>) -> Vec<u8> {
     critical_section::with(|cs| {
@@ -8,16 +8,16 @@ pub fn set_led(data: Vec<u8>) -> Vec<u8> {
         let mut hardware = hardware.borrow_ref_mut(cs);
         if !data.is_empty() {
             if data[0] == 0 {
-                debug!("called set_led with argument: false");
+                trace!("called set_led with argument: false");
                 // turn off led
                 hardware.led.clear();
             } else {
-                debug!("called set_led with argument: true");
+                trace!("called set_led with argument: true");
                 // turn on led
                 hardware.led.set();
             }
         } else {
-            debug!("called set_led with no argument, defaulting to toggling");
+            trace!("called set_led with no argument, defaulting to toggling");
             // toggle led
             hardware.led.toggle();
         }
